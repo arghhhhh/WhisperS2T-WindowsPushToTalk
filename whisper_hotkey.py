@@ -592,6 +592,8 @@ class WhisperHotkeyApp:
             import pyperclip
             pyperclip.copy(text)
             print("📋 Transcription copied to clipboard!")
+            # Play completion sound
+            self._play_sound("complete")
         except ImportError:
             print("⚠️  pyperclip not installed. Install with: pip install pyperclip")
         except Exception as e:
@@ -600,9 +602,15 @@ class WhisperHotkeyApp:
     def _play_sound(self, sound_type: str = "start"):
         """Play a notification sound using Windows built-in winsound (no extra deps)."""
         try:
-            # Find the sound file
+            # Find the sound file based on type
             script_dir = Path(__file__).parent
-            sound_file = script_dir / "files" / "pop.wav"
+            
+            if sound_type == "start":
+                sound_file = script_dir / "files" / "pop.wav"
+            elif sound_type == "complete":
+                sound_file = script_dir / "files" / "out.wav"
+            else:
+                sound_file = script_dir / "files" / "pop.wav"
             
             if not sound_file.exists():
                 return
