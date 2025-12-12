@@ -1,3 +1,4 @@
+# WhisperS2T Core Dependencies
 tqdm==4.66.2
 rich==13.7.0
 torch>=2.1.2
@@ -11,3 +12,8 @@ optimum==1.17.1
 transformers==4.36.1
 openai-whisper==20231117
 nvidia-ml-py==12.535.133
+
+# Push-to-Talk Hotkey App Dependencies
+keyboard>=0.13.5      # Global hotkey capture
+pyperclip>=1.8.2      # Clipboard access
+python-dotenv>=1.0.0  # .env file loading

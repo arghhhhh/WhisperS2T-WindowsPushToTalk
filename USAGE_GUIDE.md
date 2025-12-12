@@ -1,141 +1,183 @@
-# WhisperS2T Setup and Usage Guide
+# WhisperS2T Push-to-Talk Usage Guide
 
 ## 🚀 Quick Start
 
-Your WhisperS2T environment is now ready! Here's how to use it:
-
-### 1. Activate the Environment
-
-**Option 1: Manual activation**
-
 ```bash
 conda activate whisper
+python whisper_hotkey.py
 ```
 
-### 2. Record and Transcribe from Microphone
+Then **hold your hotkey** to record, **release** to transcribe. The transcription is automatically copied to your clipboard!
 
-**Recommended for best accuracy:**
+---
+
+## 🎤 How It Works
+
+1. **Press & Hold** your configured hotkey (default: `ctrl+alt+shift+space`)
+2. **Speak** - you'll hear a pop sound when recording starts
+3. **Release** the hotkey when done
+4. **Transcription** appears and is automatically copied to clipboard
+5. **Paste** anywhere with `Ctrl+V`
+
+---
+
+## ⚙️ Configuration
+
+All settings are in the `.env` file. Edit to customize:
+
+```env
+# =============================================================================
+# AUDIO SETTINGS
+# =============================================================================
+MIC_DEVICE=5                    # Your microphone device index
+SAMPLE_RATE=16000               # Keep at 16000 for Whisper
+
+# =============================================================================
+# MODEL SETTINGS
+# =============================================================================
+MODEL=large-v3                  # Whisper model (see options below)
+BACKEND=CTranslate2             # Fastest backend
+LANGUAGE=en                     # Language code
+
+# =============================================================================
+# RECORDING SETTINGS
+# =============================================================================
+CHUNK_DURATION=10               # Seconds per chunk (10 recommended)
+CHUNK_OVERLAP=2                 # Overlap between chunks
+
+# =============================================================================
+# HOTKEY SETTINGS
+# =============================================================================
+HOTKEY=ctrl+alt+shift+space     # Your push-to-talk hotkey
+
+# =============================================================================
+# STOP MODE SETTINGS
+# =============================================================================
+AUTO_STOP_ENABLED=false         # Set to true for auto-stop on silence
+SILENCE_THRESHOLD=2.0           # Seconds of silence before auto-stop
+
+# =============================================================================
+# OUTPUT SETTINGS
+# =============================================================================
+COPY_TO_CLIPBOARD=true          # Auto-copy transcription
+SHOW_PROGRESS=true              # Show recording progress
+PRINT_TRANSCRIPTION=true        # Print final result to console
+```
+
+### Finding Your Microphone Device Index
 
 ```bash
-# Use base model (better accuracy than tiny, still fast)
-python demo_mic.py --device 1
-
-# Use small model (even better accuracy, still real-time on RTX 4080)
-python demo_mic.py --model small --device 1
-
-# Use specific microphone (examples with your available devices)
-python demo_mic.py --device 5 --duration 5
+python -c "import pyaudio; p=pyaudio.PyAudio(); [print(f'{i}: {p.get_device_info_by_index(i)[\"name\"]}') for i in range(p.get_device_count()) if p.get_device_info_by_index(i)['maxInputChannels'] > 0]; p.terminate()"
 ```
 
-**Compare model performance:**
-
-```bash
-python compare_models.py  # Shows speed vs accuracy trade-offs
-```
-
-### 3. Advanced Microphone Usage
-
-```bash
-# Record for 5 seconds with base model
-python mic_transcribe.py --duration 5 --model base
-
-# Continuous mode (record and transcribe repeatedly)
-python mic_transcribe.py --continuous --duration 3
-
-# Use specific microphone with continuous mode
-python mic_transcribe.py --continuous --device 5 --duration 3
-
-# Use different model size
-python mic_transcribe.py --model small --device 1
-
-# Use different backend
-python mic_transcribe.py --backend HuggingFace --device 52
-```
+---
 
 ## 📋 Available Options
 
 ### Models
 
-- `tiny` - Fastest, least accurate (~39 MB)
-- `base` - Good balance (~74 MB)
-- `small` - Better accuracy (~244 MB)
-- `medium` - High accuracy (~769 MB)
-- `large-v2` - Best accuracy (~1550 MB)
-- `large-v3` - Latest best accuracy (~1550 MB)
+| Model      | Size    | Speed        | Accuracy  | Recommended For      |
+| ---------- | ------- | ------------ | --------- | -------------------- |
+| `tiny`     | ~39MB   | ⚡ Fastest   | Basic     | Testing only         |
+| `base`     | ~74MB   | ⚡ Very Fast | Good      | Quick notes          |
+| `small`    | ~244MB  | 🚀 Fast      | Better    | Daily use            |
+| `medium`   | ~769MB  | 🐌 Slower    | Very Good | Important recordings |
+| `large-v2` | ~1550MB | 🐌 Slowest   | Best      | Maximum accuracy     |
+| `large-v3` | ~1550MB | 🐌 Slowest   | Best      | **Recommended**      |
 
-### Backends
+### Hotkey Examples
 
-- `CTranslate2` - Fastest, recommended
-- `HuggingFace` - Compatible with all models
-- `OpenAI` - Original OpenAI implementation
+```env
+HOTKEY=ctrl+alt+shift+space     # 4-key combo
+HOTKEY=ctrl+shift+r             # 3-key combo
+HOTKEY=f9                       # Single function key
+```
 
 ### Languages
 
-- `en` - English (default)
-- `es` - Spanish
-- `fr` - French
-- `de` - German
-- `it` - Italian
-- `pt` - Portuguese
-- `ru` - Russian
-- `ja` - Japanese
-- `zh` - Chinese
-- And many more...
+Common codes: `en`, `es`, `fr`, `de`, `it`, `pt`, `ru`, `ja`, `zh`
 
-## 🎯 Real-time Usage Tips
+---
 
-1. **Model Selection**: For best accuracy with your RTX 4080, use `base` or `small` models. They provide excellent accuracy while remaining real-time.
+## 🔧 Command Line Options
 
-2. **Recording Duration**: 3-5 seconds works well for most speech. Longer recordings may capture more context but increase latency.
+```bash
+# Normal push-to-talk mode
+python whisper_hotkey.py
 
-3. **Continuous Mode**: Use `--continuous` for ongoing conversations. Each segment is processed independently.
+# Show current configuration
+python whisper_hotkey.py --config
 
-4. **GPU Acceleration**: Your RTX 4080 provides significant speedup - expect 10-50x faster processing compared to CPU.
+# Simple one-shot mode (no hotkey, just record for X seconds)
+python whisper_hotkey.py --simple --duration 10
+
+# Use a different .env file
+python whisper_hotkey.py --env /path/to/custom.env
+```
+
+---
+
+## 🎯 Tips for Best Results
+
+1. **Model Selection**: `large-v3` provides the best accuracy. With an RTX 4080, it processes faster than real-time.
+
+2. **Chunk Duration**: 10 seconds works well. The app automatically handles longer recordings by chunking and stitching.
+
+3. **Speak Naturally**: The intelligent stitching algorithm handles sentence boundaries well. Don't worry about pausing between chunks.
+
+4. **Wait for the Pop**: The audio notification confirms recording has started. Speak after you hear it.
+
+5. **Clean Release**: Release the hotkey cleanly after you finish speaking. The transcription starts immediately.
+
+---
 
 ## 🔧 Troubleshooting
 
-### CUDA Issues
+### Hotkey Not Working
 
-If you get CUDA-related errors:
+- **Run as Administrator**: The `keyboard` library may need admin privileges for global hotkeys
+- **Try a simpler hotkey**: Change to `f9` or `ctrl+shift+r` in `.env`
+- **Check for conflicts**: Another app might be using the same hotkey
 
-1. Make sure your NVIDIA drivers are up to date
-2. PyTorch CUDA 12.1 is compatible with your CUDA drivers
-3. If you still get CuDNN errors, ensure the PATH is set before any CUDA operations
+### No Sound on Recording Start
+
+- Ensure `files/pop.wav` exists
+- Check Windows sound settings
+
+### Transcription Not Copying to Clipboard
+
+- Verify `pyperclip` is installed: `pip install pyperclip`
+- Check `COPY_TO_CLIPBOARD=true` in `.env`
 
 ### Audio Issues
 
-If microphone recording fails:
+- Verify microphone index with the command above
+- Check Windows sound settings → Recording devices
+- Ensure no other apps are using the microphone
 
-1. Check that your microphone is enabled in Windows settings
-2. Try different audio devices
-3. Make sure no other applications are using the microphone
-4. Specify device index with `--device X` in recording scripts
+### CUDA/GPU Issues
 
-### Memory Issues
+- Run `python verify_setup.py` to check GPU status
+- Ensure NVIDIA drivers are up to date
+- Check that PyTorch sees your GPU: `python -c "import torch; print(torch.cuda.is_available())"`
 
-For large models on long audio:
+---
 
-1. Use smaller batch sizes: `--batch_size 1`
-2. Process audio in smaller chunks
-3. Consider using CPU for very large models if GPU memory is limited
+## 📊 Performance
 
-## 📊 Performance Expectations
+With an RTX 4080 and `large-v3` model:
 
-With your RTX 4080, expect:
+- **10-second chunk**: ~1.5s transcription time
+- **Real-time factor**: ~6-7x faster than real-time
+- **Memory usage**: ~3-4GB VRAM
 
-- **Tiny model**: ~50-100x real-time speed
-- **Base model**: ~30-70x real-time speed
-- **Small model**: ~20-50x real-time speed
-- **Medium model**: ~10-30x real-time speed
-- **Large models**: ~5-15x real-time speed
+---
 
-_Real-time speed means processing audio faster than it takes to speak it._
+## 🎉 You're Ready!
 
-## 🎉 What's Working
+```bash
+conda activate whisper
+python whisper_hotkey.py
+```
 
-✅ GPU acceleration with CUDA
-✅ Multiple model sizes and backends
-✅ Real-time microphone transcription
-✅ Multi-language support
-✅ Voice Activity Detection (VAD)
-✅ Batch processing capabilities
+Hold your hotkey, speak, release, paste! 🎤✨

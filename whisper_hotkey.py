@@ -19,6 +19,7 @@ Controls:
 import os
 import sys
 import time
+from pathlib import Path
 import wave
 import tempfile
 import threading
@@ -346,21 +347,123 @@ class TranscriptionThread(threading.Thread):
     def _stitch_transcriptions(self) -> str:
         """
         Combine transcriptions from multiple chunks.
-        
-        Handles overlap deduplication by finding common phrases at boundaries.
+
+        Uses intelligent overlap detection to handle chunk boundaries.
+        Handles two common issues:
+        1. Chunk 1 ends mid-word/sentence (prefers chunk 2's version of overlap)
+        2. Chunk 2 starts with hallucinated words like "And", "So", etc.
         """
         if not self.transcriptions:
             return ""
-        
+
         if len(self.transcriptions) == 1:
             return self.transcriptions[0]
+
+        def normalize_word(word: str) -> str:
+            """Normalize word for comparison (lowercase, remove punctuation)."""
+            return ''.join(c.lower() for c in word if c.isalnum())
         
-        # Simple stitching: join with space, let the model handle context
-        # More sophisticated deduplication could be added here
-        result = " ".join(self.transcriptions)
+        def find_overlap(words1: List[str], words2: List[str], min_match: int = 3, max_search: int = 30) -> tuple:
+            """
+            Find overlapping word sequence between end of words1 and start of words2.
+            
+            Also handles cases where words2 starts with hallucinated filler words.
+            
+            Returns: (words_to_remove_from_end_of_words1, words_to_skip_from_start_of_words2)
+            """
+            if not words1 or not words2:
+                return 0, 0
+            
+            # Look at the last max_search words of chunk 1
+            search_end = words1[-max_search:] if len(words1) > max_search else words1
+            # Look at the first max_search words of chunk 2
+            search_start = words2[:max_search] if len(words2) > max_search else words2
+            
+            best_match_len = 0
+            best_remove_from_1 = 0
+            best_skip_from_2 = 0
+            
+            # Try different starting positions in chunk 2 (to skip hallucinated prefix words)
+            # Common hallucinations at chunk start: "And", "So", "But", "Well", "Now", "The", "I"
+            max_skip = min(5, len(search_start) - min_match)  # Don't skip too many words
+            
+            for skip in range(max_skip + 1):
+                search_start_offset = search_start[skip:]
+                
+                # Try different starting positions in the end of chunk 1
+                for i in range(len(search_end)):
+                    # Compare search_end[i:] with search_start_offset
+                    match_count = 0
+                    
+                    for j in range(min(len(search_end) - i, len(search_start_offset))):
+                        w1 = normalize_word(search_end[i + j])
+                        w2 = normalize_word(search_start_offset[j])
+                        
+                        if w1 == w2:
+                            match_count += 1
+                        else:
+                            # Allow one mismatch in the middle if surrounded by matches
+                            # This handles cases where one chunk misheard a single word
+                            if match_count >= 2 and j + 1 < len(search_start_offset) and i + j + 1 < len(search_end):
+                                next_w1 = normalize_word(search_end[i + j + 1])
+                                next_w2 = normalize_word(search_start_offset[j + 1])
+                                if next_w1 == next_w2:
+                                    # Skip this mismatch and continue
+                                    match_count += 1
+                                    continue
+                            break
+                    
+                    # If we found a better overlap, record it
+                    # Prefer longer matches, and for equal length, prefer less skipping
+                    if match_count >= min_match:
+                        if match_count > best_match_len or (match_count == best_match_len and skip < best_skip_from_2):
+                            best_match_len = match_count
+                            best_remove_from_1 = len(search_end) - i
+                            best_skip_from_2 = skip
+            
+            return best_remove_from_1, best_skip_from_2
         
-        # Clean up extra spaces
-        result = " ".join(result.split())
+        # Build result by stitching chunks with overlap removal
+        result_words = self.transcriptions[0].split()
+        
+        if self.config.show_progress:
+            print(f"   📝 Chunk 1: \"{' '.join(result_words[-10:])}...\"")
+        
+        for i in range(1, len(self.transcriptions)):
+            next_words = self.transcriptions[i].split()
+            
+            if not next_words:
+                continue
+            
+            if self.config.show_progress:
+                print(f"   📝 Chunk {i+1}: \"{' '.join(next_words[:10])}...\"")
+            
+            # Find overlap between current result and next chunk
+            remove_from_result, skip_from_next = find_overlap(result_words, next_words)
+            
+            if remove_from_result > 0 or skip_from_next > 0:
+                if self.config.show_progress:
+                    if remove_from_result > 0:
+                        removed_words = result_words[-remove_from_result:]
+                        print(f"   🔗 Removing {remove_from_result} words from chunk {i}: \"{' '.join(removed_words)}\"")
+                    if skip_from_next > 0:
+                        skipped_words = next_words[:skip_from_next]
+                        print(f"   🔗 Skipping {skip_from_next} hallucinated words from chunk {i+1}: \"{' '.join(skipped_words)}\"")
+                
+                # Remove overlapping words from result
+                if remove_from_result > 0:
+                    result_words = result_words[:-remove_from_result]
+                
+                # Skip hallucinated prefix from next chunk
+                if skip_from_next > 0:
+                    next_words = next_words[skip_from_next:]
+            
+            # Append next chunk's words
+            result_words.extend(next_words)
+        
+        # Join and clean up
+        result = " ".join(result_words)
+        result = " ".join(result.split())  # Normalize whitespace
         
         return result
 
@@ -442,6 +545,9 @@ class WhisperHotkeyApp:
         )
         self.recording_thread.start()
         
+        # Play sound to indicate recording started
+        self._play_sound("start")
+
     def stop_recording(self):
         """Stop recording and wait for transcription to complete."""
         if self.state != AppState.RECORDING:
@@ -490,7 +596,26 @@ class WhisperHotkeyApp:
             print("⚠️  pyperclip not installed. Install with: pip install pyperclip")
         except Exception as e:
             print(f"⚠️  Could not copy to clipboard: {e}")
-    
+
+    def _play_sound(self, sound_type: str = "start"):
+        """Play a notification sound using Windows built-in winsound (no extra deps)."""
+        try:
+            # Find the sound file
+            script_dir = Path(__file__).parent
+            sound_file = script_dir / "files" / "pop.wav"
+            
+            if not sound_file.exists():
+                return
+            
+            # Use winsound (built into Python on Windows)
+            import winsound
+            # SND_ASYNC plays without blocking, SND_FILENAME plays from file
+            winsound.PlaySound(str(sound_file), winsound.SND_FILENAME | winsound.SND_ASYNC)
+                
+        except Exception as e:
+            # Silently fail - sound is not critical
+            pass
+
     def run(self):
         """Main application loop with hotkey listener."""
         try:

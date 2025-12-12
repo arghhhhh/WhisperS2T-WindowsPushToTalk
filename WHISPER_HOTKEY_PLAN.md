@@ -128,10 +128,15 @@ Overlap:       ^^^       ^^^
 WhisperS2T/
 ├── .env                      # User configuration (gitignored)
 ├── .env.example              # Template for .env
-├── whisper_hotkey.py         # Main application
+├── whisper_hotkey.py         # Main push-to-talk application
 ├── whisper_hotkey_config.py  # Configuration loader
-├── WHISPER_HOTKEY_PLAN.md    # This document
-└── (existing files...)
+├── requirements.txt          # All dependencies (including hotkey deps)
+├── files/
+│   └── pop.wav               # Audio notification sound
+├── SETUP.md                  # Setup instructions
+├── USAGE_GUIDE.md            # Usage documentation
+├── WHISPER_HOTKEY_PLAN.md    # This document (architecture reference)
+└── whisper_s2t/              # Core WhisperS2T library
 ```
 
 ---
@@ -267,10 +272,10 @@ python-dotenv     # .env file loading
 ### Phase 4: Polish & Testing 🔄
 
 - [x] Test push-to-talk flow
-- [ ] Test chunk stitching (longer recordings)
-- [ ] Test auto-stop mode
+- [x] Test chunk stitching (intelligent overlap detection working)
+- [x] Audio notification on recording start (pop.wav)
 - [x] Error handling
-- [ ] Documentation
+- [x] Documentation (SETUP.md, USAGE_GUIDE.md updated)
 
 ---
 

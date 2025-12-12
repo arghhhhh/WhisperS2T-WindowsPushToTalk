@@ -1,6 +1,0 @@
-# Additional requirements for whisper_hotkey.py
-# Install with: pip install -r requirements_hotkey.txt
-
-keyboard>=0.13.5      # Global hotkey capture
-pyperclip>=1.8.2      # Clipboard access
-python-dotenv>=1.0.0  # .env file loading
