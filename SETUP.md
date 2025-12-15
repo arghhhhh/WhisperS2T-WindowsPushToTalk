@@ -1,6 +1,6 @@
 # WhisperS2T Push-to-Talk Setup Guide
 
-This guide will help you set up WhisperS2T for GPU-accelerated push-to-talk speech-to-text on Windows.
+This guide will help you set up WhisperS2T for GPU-accelerated push-to-talk speech-to-text on Windows, with support for both **Whisper** and **Parakeet** models.
 
 ## 📋 System Requirements
 
@@ -9,6 +9,21 @@ This guide will help you set up WhisperS2T for GPU-accelerated push-to-talk spee
 - **RAM**: 16GB minimum
 - **Storage**: 10GB free space for models and dependencies
 - **OS**: Windows 10/11
+
+---
+
+## 🎯 Choose Your Backend
+
+| Backend                   | Best For                    | Install Complexity          |
+| ------------------------- | --------------------------- | --------------------------- |
+| **Parakeet**              | English-only, best accuracy | Medium (NeMo has many deps) |
+| **Whisper (CTranslate2)** | Multilingual, good balance  | Easy                        |
+| **Whisper (TensorRT)**    | Maximum speed               | Complex                     |
+
+**Recommendation:**
+
+- For **English**: Use Parakeet
+- For **multilingual**: Use Whisper with CTranslate2
 
 ---
 
@@ -74,20 +89,52 @@ Verify CUDA installation:
 python -c "import torch; print('CUDA available:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'None')"
 ```
 
-### Step 7: Install WhisperS2T and Dependencies
+---
+
+## 📦 Backend-Specific Installation
+
+### Option A: Whisper Only (Recommended for Multilingual)
 
 ```bash
-# Install core dependencies
-pip install -r requirements.txt
+# Install Whisper dependencies
+pip install -r requirements-whisper.txt
 
-# Install PyAudio for microphone support
-pip install pyaudio
-
-# Install WhisperS2T from current directory
+# Install package
 pip install -e .
 ```
 
-### Step 8: Verify Setup
+### Option B: Parakeet Only (Recommended for English)
+
+```bash
+# Install Parakeet dependencies (NeMo)
+pip install -r requirements-parakeet.txt
+
+# Install package
+pip install -e .
+
+# Download or place your Parakeet model
+# Option 1: Download from NGC (happens automatically on first use)
+# Option 2: Place .nemo file in models/ folder
+```
+
+### Option C: Both Backends (May Have Conflicts)
+
+```bash
+# Install Whisper first
+pip install -r requirements-whisper.txt
+
+# Then add NeMo (may upgrade some packages)
+pip install nemo_toolkit[asr]
+
+# Install package
+pip install -e .
+```
+
+**Note:** NeMo may upgrade some packages that Whisper depends on. In practice, this usually works fine, but if you encounter issues, use separate conda environments.
+
+---
+
+## ✅ Verify Setup
 
 ```bash
 python verify_setup.py
@@ -103,7 +150,9 @@ This checks:
 - ✅ PyAudio (microphone support)
 - ✅ Available microphones
 
-### Step 9: Configure Your Settings
+---
+
+## ⚙️ Configure Your Settings
 
 Copy the example configuration and customize:
 
@@ -113,15 +162,24 @@ copy .env.example .env
 
 Edit `.env` with your settings:
 
+### For Whisper:
+
 ```env
-# Find your microphone device index first (see step below)
-MIC_DEVICE=5
+MIC_DEVICE=5                    # Your microphone index
+MODEL=large-v3                  # Whisper model
+BACKEND=CTranslate2             # Whisper backend
+LANGUAGE=en                     # Language code
+HOTKEY=ctrl+alt+shift+space     # Push-to-talk hotkey
+```
 
-# Choose your model (large-v3 recommended for accuracy)
-MODEL=large-v3
+### For Parakeet:
 
-# Set your preferred hotkey
-HOTKEY=ctrl+alt+shift+space
+```env
+MIC_DEVICE=5                                # Your microphone index
+MODEL=models/parakeet-tdt-0.6b-v2.nemo      # Path to .nemo file
+BACKEND=Parakeet                            # Parakeet backend
+LANGUAGE=en                                 # English only
+HOTKEY=ctrl+alt+shift+space                 # Push-to-talk hotkey
 ```
 
 **Find your microphone device index:**
@@ -130,13 +188,17 @@ HOTKEY=ctrl+alt+shift+space
 python -c "import pyaudio; p=pyaudio.PyAudio(); [print(f'{i}: {p.get_device_info_by_index(i)[\"name\"]}') for i in range(p.get_device_count()) if p.get_device_info_by_index(i)['maxInputChannels'] > 0]; p.terminate()"
 ```
 
-### Step 10: First Test
+---
+
+## 🧪 First Test
 
 ```bash
 python whisper_hotkey.py
 ```
 
-1. Wait for the model to load (first run downloads ~3GB for large-v3)
+1. Wait for the model to load
+   - Whisper: First run downloads ~3GB for large-v3
+   - Parakeet: Uses your local .nemo file or downloads from NGC
 2. Press and hold your hotkey
 3. Speak into your microphone
 4. Release the hotkey
@@ -191,17 +253,41 @@ If `False`:
 2. Verify the device index in `.env` is correct
 3. Ensure no other apps are using the microphone
 
+### Parakeet Returns Empty Results
+
+- Verify you're using the correct microphone device
+- Check that the .nemo file path is correct
+- Ensure audio is actually being recorded (check file size)
+
+### NeMo Import Errors
+
+If NeMo fails to import:
+
+```bash
+# Try reinstalling in a fresh environment
+conda create -n parakeet python=3.10 -y
+conda activate parakeet
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+pip install nemo_toolkit[asr]
+```
+
 ### Model Download Slow
 
-The first run downloads the model (~3GB for large-v3). Be patient or use a smaller model:
+The first run downloads the model. Be patient or use a smaller model:
 
 ```env
+# Whisper
 MODEL=base  # ~74MB, faster download
+
+# Parakeet - use local file to avoid download
+MODEL=models/parakeet-tdt-0.6b-v2.nemo
 ```
 
 ---
 
 ## 📊 Model Recommendations
+
+### Whisper Models (Multilingual)
 
 | Model      | Size    | Speed        | Accuracy  | Use Case             |
 | ---------- | ------- | ------------ | --------- | -------------------- |
@@ -209,7 +295,14 @@ MODEL=base  # ~74MB, faster download
 | `base`     | ~74MB   | ⚡ Very Fast | Good      | Quick notes          |
 | `small`    | ~244MB  | 🚀 Fast      | Better    | Daily use            |
 | `medium`   | ~769MB  | 🐌 Slower    | Very Good | Important recordings |
-| `large-v3` | ~1550MB | 🐌 Slowest   | **Best**  | **Recommended**      |
+| `large-v3` | ~1550MB | 🐌 Slowest   | **Best**  | Maximum accuracy     |
+
+### Parakeet Models (English Only)
+
+| Model                  | Size   | Speed   | Accuracy | Notes                       |
+| ---------------------- | ------ | ------- | -------- | --------------------------- |
+| `parakeet-tdt-0.6b-v2` | ~600MB | 🚀 Fast | **Best** | **Recommended for English** |
+| `parakeet-tdt-1.1b`    | ~1.1GB | 🚀 Fast | **Best** | Larger, slightly better     |
 
 ---
 
