@@ -6,6 +6,7 @@ with the WhisperS2T transcription system.
 """
 
 import os
+import logging
 from typing import List, Optional, Dict, Any
 
 import torch
@@ -50,6 +51,11 @@ class ParakeetModel(ASRModelBase):
         # Import NeMo (deferred to avoid import overhead if not using Parakeet)
         try:
             import nemo.collections.asr as nemo_asr
+            try:
+                from nemo.utils import logging as nemo_logging
+                nemo_logging.setLevel(logging.ERROR)
+            except ImportError:
+                pass
             self.nemo_asr = nemo_asr
         except ImportError:
             raise ImportError(
