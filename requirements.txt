@@ -1,19 +1,49 @@
-# WhisperS2T Core Dependencies
-tqdm==4.66.2
-rich==13.7.0
+# =============================================================================
+# CORE DEPENDENCIES (required for all backends)
+# =============================================================================
 torch>=2.1.2
-numpy==1.26.4
-platformdirs==4.2.0
-ctranslate2==4.0.0
-tokenizers==0.15.2
-huggingface-hub==0.20.3
-accelerate==0.25.0
-optimum==1.17.1
-transformers==4.36.1
-openai-whisper==20231117
-nvidia-ml-py==12.535.133
+numpy>=1.24.0
+tqdm>=4.65.0
+rich>=13.0.0
+platformdirs>=3.0.0
 
-# Push-to-Talk Hotkey App Dependencies
-keyboard>=0.13.5      # Global hotkey capture
-pyperclip>=1.8.2      # Clipboard access
-python-dotenv>=1.0.0  # .env file loading
+# =============================================================================
+# WHISPER BACKENDS
+# =============================================================================
+# These are needed for Whisper-based transcription (CTranslate2, HuggingFace, etc.)
+# If you only use Parakeet, you can skip these.
+
+# -- CTranslate2 Backend (default, recommended for Whisper) --
+ctranslate2>=4.0.0
+tokenizers>=0.15.0
+huggingface-hub>=0.20.0
+
+# -- HuggingFace Backend --
+transformers>=4.36.0
+accelerate>=0.25.0
+optimum>=1.17.0
+
+# -- OpenAI Backend (original Whisper implementation) --
+# Only needed if you use backend="OpenAI"
+# openai-whisper>=20231117
+
+# -- GPU Monitoring --
+nvidia-ml-py>=12.535.0
+
+# =============================================================================
+# PARAKEET BACKEND (NVIDIA NeMo) - Optional
+# =============================================================================
+# State-of-the-art English ASR. Uncomment to enable.
+# Note: NeMo has many dependencies and may conflict with Whisper packages.
+# Consider using a separate conda environment for Parakeet.
+#
+# pip install nemo_toolkit[asr]
+
+# =============================================================================
+# PUSH-TO-TALK HOTKEY APP
+# =============================================================================
+# Only needed if you use whisper_hotkey.py
+keyboard>=0.13.5        # Global hotkey capture
+pyperclip>=1.8.2        # Clipboard access
+python-dotenv>=1.0.0    # .env file loading
+pyaudio>=0.2.14         # Audio recording

@@ -39,6 +39,12 @@ MODEL=large-v3                  # Whisper model (see options below)
 BACKEND=CTranslate2             # Fastest backend
 LANGUAGE=en                     # Language code
 
+# --- OR use Parakeet for best English accuracy ---
+# MODEL=models/parakeet-tdt-0.6b-v2.nemo  # Local .nemo file
+# MODEL=nvidia/parakeet-tdt-0.6b-v2       # Download from NGC
+# BACKEND=Parakeet
+# LANGUAGE=en                             # Parakeet is English-only
+
 # =============================================================================
 # RECORDING SETTINGS
 # =============================================================================
@@ -76,6 +82,8 @@ python -c "import pyaudio; p=pyaudio.PyAudio(); [print(f'{i}: {p.get_device_info
 
 ### Models
 
+#### Whisper Models (Multilingual)
+
 | Model      | Size    | Speed        | Accuracy  | Recommended For      |
 | ---------- | ------- | ------------ | --------- | -------------------- |
 | `tiny`     | ~39MB   | ⚡ Fastest   | Basic     | Testing only         |
@@ -84,6 +92,26 @@ python -c "import pyaudio; p=pyaudio.PyAudio(); [print(f'{i}: {p.get_device_info
 | `medium`   | ~769MB  | 🐌 Slower    | Very Good | Important recordings |
 | `large-v2` | ~1550MB | 🐌 Slowest   | Best      | Maximum accuracy     |
 | `large-v3` | ~1550MB | 🐌 Slowest   | Best      | **Recommended**      |
+
+#### Parakeet Models (English-Only, State-of-the-Art)
+
+| Model                         | Size   | Speed   | Accuracy | Notes                       |
+| ----------------------------- | ------ | ------- | -------- | --------------------------- |
+| `nvidia/parakeet-tdt-0.6b-v2` | ~600MB | 🚀 Fast | **Best** | **Recommended for English** |
+| `nvidia/parakeet-tdt-1.1b`    | ~1.1GB | 🚀 Fast | **Best** | Larger, slightly better     |
+| Local `.nemo` file            | Varies | 🚀 Fast | **Best** | Use your own model          |
+
+**Note:** Parakeet models require the NeMo toolkit: `pip install nemo_toolkit[asr]`
+
+### Backends
+
+| Backend       | Best For                   | Notes                       |
+| ------------- | -------------------------- | --------------------------- |
+| `CTranslate2` | General Whisper use        | Default, fast, good balance |
+| `TensorRT`    | Maximum Whisper speed      | Requires TensorRT-LLM setup |
+| `HuggingFace` | Distil models, flexibility | Slower, more features       |
+| `OpenAI`      | Original implementation    | Reference, not optimized    |
+| `Parakeet`    | **Best English accuracy**  | English-only, requires NeMo |
 
 ### Hotkey Examples
 
@@ -119,7 +147,10 @@ python whisper_hotkey.py --env /path/to/custom.env
 
 ## 🎯 Tips for Best Results
 
-1. **Model Selection**: `large-v3` provides the best accuracy. With an RTX 4080, it processes faster than real-time.
+1. **Model Selection**:
+
+   - For **English**: Use `Parakeet` backend with `nvidia/parakeet-tdt-0.6b-v2` for state-of-the-art accuracy
+   - For **multilingual**: Use `large-v3` with `CTranslate2` backend
 
 2. **Chunk Duration**: 10 seconds works well. The app automatically handles longer recordings by chunking and stitching.
 
@@ -128,6 +159,8 @@ python whisper_hotkey.py --env /path/to/custom.env
 4. **Wait for the Pop**: The audio notification confirms recording has started. Speak after you hear it.
 
 5. **Clean Release**: Release the hotkey cleanly after you finish speaking. The transcription starts immediately.
+
+6. **Parakeet Setup**: If using Parakeet, install NeMo first: `pip install nemo_toolkit[asr]`
 
 ---
 

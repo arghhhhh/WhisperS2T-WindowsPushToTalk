@@ -1,0 +1,24 @@
+# Parakeet-only requirements (NVIDIA NeMo)
+# Install with: pip install -r requirements-parakeet.txt
+#
+# Note: NeMo is a large package with many dependencies.
+# Consider creating a fresh conda environment:
+#   conda create -n parakeet python=3.10
+#   conda activate parakeet
+#   pip install -r requirements-parakeet.txt
+
+# Core
+torch>=2.1.2
+numpy>=1.24.0
+tqdm>=4.65.0
+rich>=13.0.0
+platformdirs>=3.0.0
+
+# Parakeet/NeMo ASR
+nemo_toolkit[asr]>=2.0.0
+
+# Hotkey app
+keyboard>=0.13.5
+pyperclip>=1.8.2
+python-dotenv>=1.0.0
+pyaudio>=0.2.14
