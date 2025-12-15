@@ -17,3 +17,7 @@ nvidia-ml-py==12.535.133
 keyboard>=0.13.5      # Global hotkey capture
 pyperclip>=1.8.2      # Clipboard access
 python-dotenv>=1.0.0  # .env file loading
+
+# Parakeet Backend (NVIDIA NeMo) - Optional
+# Uncomment to enable Parakeet TDT models (state-of-the-art English ASR)
+# nemo_toolkit[asr]>=2.0.0

@@ -6,6 +6,7 @@ from ..configs import *
 from ..data import WhisperDataLoader
 from ..audio import LogMelSpectogram
 from ..speech_segmenter import SpeechSegmenter
+from .base import ASRModelBase
 
 
 class NoneTokenizer:
@@ -33,7 +34,7 @@ def fix_batch_param(param, default_value, N):
     return param
 
 
-class WhisperModel(ABC):
+class WhisperModel(ASRModelBase):
     def __init__(self,
                  tokenizer=None,
                  vad_model=None,
