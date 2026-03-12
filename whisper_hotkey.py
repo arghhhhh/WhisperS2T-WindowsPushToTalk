@@ -882,8 +882,11 @@ class WhisperHotkeyApp:
             print("\n\n👋 Exiting...")
 
         finally:
-            keyboard.unhook_all()
-            self.overlay.shutdown()
+            # Force-exit immediately. The OS will clean up keyboard hooks,
+            # audio streams, and the Qt event loop when the process dies.
+            # We skip keyboard.unhook_all() because it deadlocks on Windows
+            # by blocking the GIL inside a C-level Win32 UnhookWindowsHookEx call.
+            os._exit(0)
 
 
 # =============================================================================
