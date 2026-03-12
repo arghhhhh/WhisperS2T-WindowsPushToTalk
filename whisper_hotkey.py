@@ -730,6 +730,12 @@ class WhisperHotkeyApp:
                     all_keys.add('left alt')
                     all_keys.add('right alt')
                     all_keys.add('alt gr')
+                if 'cmd' in all_keys or 'windows' in all_keys or 'win' in all_keys:
+                    all_keys.add('cmd')
+                    all_keys.add('windows')
+                    all_keys.add('win')
+                    all_keys.add('left windows')
+                    all_keys.add('right windows')
                 
                 print(f"   Tracking keys: {all_keys}")
                 print(f"   Trigger key: '{trigger_key}'")
@@ -746,6 +752,9 @@ class WhisperHotkeyApp:
                         elif mod == 'alt':
                             if not keyboard.is_pressed('alt'):
                                 return False
+                        elif mod in ('cmd', 'windows', 'win'):
+                            if not (keyboard.is_pressed('left windows') or keyboard.is_pressed('right windows')):
+                                return False
                     return True
                 
                 def key_event_handler(event):
@@ -760,10 +769,11 @@ class WhisperHotkeyApp:
                         if DEBUG_KEYS:
                             print(f"   [DEBUG] Press: '{key_name}'", end="")
                         
-                        # Check for trigger key (handle 'space' variations)
+                        # Check for trigger key (handle aliases)
                         is_trigger = (
                             key_name == trigger_key or
-                            (trigger_key == 'space' and key_name in ('space', ' '))
+                            (trigger_key == 'space' and key_name in ('space', ' ')) or
+                            (trigger_key in ('cmd', 'windows', 'win') and key_name in ('cmd', 'windows', 'win', 'left windows', 'right windows'))
                         )
                         
                         if is_trigger and check_modifiers():

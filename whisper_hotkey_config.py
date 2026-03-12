@@ -129,7 +129,7 @@ def load_config(env_path: Optional[str] = None) -> WhisperHotkeyConfig:
         chunk_overlap=_get_int('CHUNK_OVERLAP', 2),
         
         # Hotkey settings
-        hotkey=os.getenv('HOTKEY', 'ctrl+shift+space'),
+        hotkey=os.getenv('HOTKEY', 'ctrl+cmd'),
         
         # Stop mode settings
         auto_stop_enabled=_get_bool('AUTO_STOP_ENABLED', False),

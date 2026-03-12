@@ -46,7 +46,7 @@ python whisper_hotkey.py
 
 ### Features
 
-- ⌨️ **Configurable hotkey** (default: `ctrl+alt+shift+space`)
+- ⌨️ **Configurable hotkey** (default: `ctrl+windows`)
 - 📋 **Auto-copy to clipboard** - paste transcriptions anywhere instantly
 - 🔊 **Audio notification** when recording starts
 - 🧵 **Multi-threaded** - records and transcribes in parallel for long recordings
