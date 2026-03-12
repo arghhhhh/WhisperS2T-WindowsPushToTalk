@@ -85,6 +85,7 @@ class RecordingThread(threading.Thread):
         stop_event: threading.Event,
         auto_stopped_event: threading.Event,
         overlay: Optional[RecordingOverlay] = None,
+        on_stream_open=None,
     ):
         super().__init__(daemon=True)
         self.chunk_queue = chunk_queue
@@ -92,6 +93,7 @@ class RecordingThread(threading.Thread):
         self.stop_event = stop_event
         self.auto_stopped_event = auto_stopped_event
         self.overlay = overlay
+        self.on_ready = on_stream_open
 
         self.audio = pyaudio.PyAudio()
         self.stream: Optional[pyaudio.Stream] = None
@@ -117,6 +119,12 @@ class RecordingThread(threading.Thread):
     def run(self):
         """Main recording loop."""
         try:
+            # Play start sound synchronously FIRST — blocks until the pop
+            # has fully played through the speakers, so the user hears it
+            # before we transition the overlay and start capturing audio.
+            if self.on_ready:
+                self.on_ready()
+
             # Open audio stream
             self.stream = self.audio.open(
                 format=FORMAT,
@@ -126,7 +134,11 @@ class RecordingThread(threading.Thread):
                 input_device_index=self.config.mic_device,
                 frames_per_buffer=CHUNK
             )
-            
+
+            # Transition overlay to recording state now that we're capturing
+            if self.overlay:
+                self.overlay.set_recording()
+
             print("🎙️  Recording started...")
             
             # Buffer for current chunk
@@ -585,14 +597,18 @@ class WhisperHotkeyApp:
             stop_event=self.stop_event,
             auto_stopped_event=self.auto_stopped_event,
             overlay=self.overlay,
+            on_stream_open=self._on_recording_stream_open,
         )
         self.recording_thread.start()
 
-        # Show recording overlay
+        # Show overlay immediately in loading state
         self.overlay.show()
 
-        # Play sound to indicate recording started
-        self._play_sound("start")
+    def _on_recording_stream_open(self):
+        """Called from RecordingThread before the audio stream opens.
+        Plays the pop sound synchronously so it fully plays through the
+        speakers before recording begins."""
+        self._play_sound("start", sync=True)
 
     def stop_recording(self):
         """Stop recording and wait for transcription to complete."""
@@ -648,26 +664,29 @@ class WhisperHotkeyApp:
         except Exception as e:
             print(f"⚠️  Could not copy to clipboard: {e}")
 
-    def _play_sound(self, sound_type: str = "start"):
+    def _play_sound(self, sound_type: str = "start", sync: bool = False):
         """Play a notification sound using Windows built-in winsound (no extra deps)."""
         try:
             # Find the sound file based on type
             script_dir = Path(__file__).parent
-            
+
             if sound_type == "start":
                 sound_file = script_dir / "files" / "pop.wav"
             elif sound_type == "complete":
                 sound_file = script_dir / "files" / "out.wav"
             else:
                 sound_file = script_dir / "files" / "pop.wav"
-            
+
             if not sound_file.exists():
                 return
-            
+
             # Use winsound (built into Python on Windows)
             import winsound
-            # SND_ASYNC plays without blocking, SND_FILENAME plays from file
-            winsound.PlaySound(str(sound_file), winsound.SND_FILENAME | winsound.SND_ASYNC)
+            # SND_ASYNC plays without blocking; omit it for synchronous (blocking) playback
+            flags = winsound.SND_FILENAME
+            if not sync:
+                flags |= winsound.SND_ASYNC
+            winsound.PlaySound(str(sound_file), flags)
                 
         except Exception as e:
             # Silently fail - sound is not critical

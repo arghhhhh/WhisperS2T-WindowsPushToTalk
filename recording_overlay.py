@@ -6,15 +6,15 @@ Runs Qt in a dedicated background thread so it doesn't block the main hotkey loo
 """
 
 import sys
+import math
 import struct
 import threading
 import numpy as np
-from collections import deque
 
 from PySide6.QtWidgets import QApplication, QWidget
 from PySide6.QtCore import Qt, QTimer, Signal, QObject, QRectF, QPointF
 from PySide6.QtGui import (
-    QPainter, QPainterPath, QColor, QLinearGradient, QPen, QBrush, QFont
+    QPainter, QPainterPath, QColor, QPen, QBrush, QFont
 )
 
 
@@ -42,7 +42,9 @@ BG_COLOR = QColor(24, 24, 28, 230)
 BAR_COLOR_LOW = QColor(80, 200, 120)    # Green
 BAR_COLOR_HIGH = QColor(255, 90, 90)    # Red for loud
 LABEL_COLOR = QColor(255, 255, 255, 200)
+LABEL_DIM_COLOR = QColor(255, 255, 255, 100)
 BORDER_COLOR = QColor(255, 255, 255, 30)
+SPINNER_COLOR = QColor(255, 255, 255, 160)
 
 # Recording dot animation
 DOT_COLOR = QColor(255, 60, 60)
@@ -56,6 +58,7 @@ class _OverlayBridge(QObject):
     """Qt signal bridge for thread-safe communication."""
     show_signal = Signal()
     hide_signal = Signal()
+    set_recording_signal = Signal()
     audio_signal = Signal(bytes)
 
 
@@ -80,6 +83,9 @@ class _PillOverlay(QWidget):
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.setFixedSize(PILL_WIDTH, PILL_HEIGHT)
 
+        # State: "loading" or "recording"
+        self._state = "loading"
+
         # Bar heights (smoothed)
         self.bar_heights = [BAR_MIN_HEIGHT] * NUM_BARS
         self.target_heights = [BAR_MIN_HEIGHT] * NUM_BARS
@@ -87,6 +93,9 @@ class _PillOverlay(QWidget):
         # Recording dot blink
         self.dot_visible = True
         self.dot_timer = 0
+
+        # Loading spinner angle
+        self.spinner_angle = 0.0
 
         # Animation timer
         self.anim_timer = QTimer(self)
@@ -104,14 +113,21 @@ class _PillOverlay(QWidget):
             y = avail.bottom() - PILL_HEIGHT - MARGIN_BOTTOM
             self.move(x, y)
 
+    def set_recording(self):
+        """Transition from loading to recording state."""
+        self._state = "recording"
+
     def showEvent(self, event):
         super().showEvent(event)
+        self._state = "loading"
+        self.spinner_angle = 0.0
         self.anim_timer.start()
 
     def hideEvent(self, event):
         self.anim_timer.stop()
         self.bar_heights = [BAR_MIN_HEIGHT] * NUM_BARS
         self.target_heights = [BAR_MIN_HEIGHT] * NUM_BARS
+        self._state = "loading"
         super().hideEvent(event)
 
     def feed_audio(self, raw_bytes: bytes):
@@ -132,7 +148,7 @@ class _PillOverlay(QWidget):
             rms = float(np.sqrt(np.mean(samples[start:end] ** 2)))
             # Log scale so quiet speech is still visible (rms 0.01-0.15 typical)
             if rms > 0.001:
-                normalized = (np.log10(rms) + 3) / 2.5  # maps ~0.001→0.0, ~0.18→1.0
+                normalized = (np.log10(rms) + 3) / 2.5  # maps ~0.001->0.0, ~0.18->1.0
                 normalized = max(0.0, min(1.0, normalized))
             else:
                 normalized = 0.0
@@ -140,19 +156,22 @@ class _PillOverlay(QWidget):
             self.target_heights[i] = max(self.target_heights[i], h)
 
     def _tick(self):
-        """Animation frame - smooth bars toward targets, then decay."""
+        """Animation frame."""
         self.dot_timer += 1
         if self.dot_timer >= FPS // 2:
             self.dot_visible = not self.dot_visible
             self.dot_timer = 0
 
-        for i in range(NUM_BARS):
-            # Lerp toward target
-            self.bar_heights[i] += (self.target_heights[i] - self.bar_heights[i]) * 0.4
-            # Decay target
-            self.target_heights[i] *= DECAY
-            if self.target_heights[i] < BAR_MIN_HEIGHT:
-                self.target_heights[i] = BAR_MIN_HEIGHT
+        if self._state == "loading":
+            self.spinner_angle = (self.spinner_angle + 8) % 360
+        else:
+            for i in range(NUM_BARS):
+                # Lerp toward target
+                self.bar_heights[i] += (self.target_heights[i] - self.bar_heights[i]) * 0.4
+                # Decay target
+                self.target_heights[i] *= DECAY
+                if self.target_heights[i] < BAR_MIN_HEIGHT:
+                    self.target_heights[i] = BAR_MIN_HEIGHT
 
         self.update()
 
@@ -168,29 +187,54 @@ class _PillOverlay(QWidget):
         p.setPen(QPen(BORDER_COLOR, 1))
         p.drawPath(pill)
 
+        if self._state == "loading":
+            self._paint_loading(p)
+        else:
+            self._paint_recording(p)
+
+        p.end()
+
+    def _paint_loading(self, p: QPainter):
+        """Draw loading state: spinner + 'Loading...' text."""
+        center_y = PILL_HEIGHT / 2
+
+        # -- Spinner (arc) --
+        spinner_x = 14
+        spinner_size = 16
+        rect = QRectF(spinner_x, center_y - spinner_size / 2, spinner_size, spinner_size)
+
+        pen = QPen(SPINNER_COLOR, 2.5, Qt.SolidLine, Qt.RoundCap)
+        p.setPen(pen)
+        p.setBrush(Qt.NoBrush)
+        # Draw a 270-degree arc that rotates
+        p.drawArc(rect, int(self.spinner_angle * 16), 270 * 16)
+
+        # -- "Loading..." text --
+        p.setPen(QPen(LABEL_DIM_COLOR))
+        p.setFont(QFont("Segoe UI", 9))
+        p.drawText(38, int(center_y + 5), "Loading...")
+
+    def _paint_recording(self, p: QPainter):
+        """Draw recording state: dot + REC + waveform bars."""
+        center_y = PILL_HEIGHT / 2
+
         # -- Recording dot --
         dot_x = 16
-        dot_y = PILL_HEIGHT / 2
         if self.dot_visible:
             p.setBrush(QBrush(DOT_COLOR))
-            p.setPen(Qt.NoPen)
-            p.drawEllipse(QPointF(dot_x, dot_y), 5, 5)
-        # Dim dot when blinking off
         else:
             p.setBrush(QBrush(QColor(255, 60, 60, 80)))
-            p.setPen(Qt.NoPen)
-            p.drawEllipse(QPointF(dot_x, dot_y), 5, 5)
+        p.setPen(Qt.NoPen)
+        p.drawEllipse(QPointF(dot_x, center_y), 5, 5)
 
         # -- REC label --
         p.setPen(QPen(LABEL_COLOR))
         p.setFont(QFont("Segoe UI", 8, QFont.Bold))
-        p.drawText(28, int(PILL_HEIGHT / 2 + 4), "REC")
+        p.drawText(28, int(center_y + 4), "REC")
 
         # -- Waveform bars --
         bars_start_x = 60
-        bars_area_width = PILL_WIDTH - bars_start_x - 12
         actual_bar_total = BAR_WIDTH + BAR_GAP
-        center_y = PILL_HEIGHT / 2
 
         for i in range(NUM_BARS):
             x = bars_start_x + i * actual_bar_total
@@ -211,8 +255,6 @@ class _PillOverlay(QWidget):
             rect = QRectF(x, center_y - h / 2, BAR_WIDTH, h)
             p.drawRoundedRect(rect, BAR_WIDTH / 2, BAR_WIDTH / 2)
 
-        p.end()
-
 
 # =============================================================================
 # PUBLIC API - Thread-safe overlay manager
@@ -224,7 +266,8 @@ class RecordingOverlay:
 
     Usage:
         overlay = RecordingOverlay()
-        overlay.show()                    # Show the pill overlay
+        overlay.show()                    # Show with loading state
+        overlay.set_recording()           # Transition to recording/waveform state
         overlay.feed_audio(raw_bytes)     # Feed raw int16 PCM bytes for waveform
         overlay.hide()                    # Hide the overlay
         overlay.shutdown()                # Clean up Qt (call on app exit)
@@ -254,13 +297,14 @@ class RecordingOverlay:
         # Connect signals
         self._bridge.show_signal.connect(self._widget.show)
         self._bridge.hide_signal.connect(self._widget.hide)
+        self._bridge.set_recording_signal.connect(self._widget.set_recording)
         self._bridge.audio_signal.connect(self._widget.feed_audio)
 
         self._ready.set()
         self._app.exec()
 
     def show(self):
-        """Show the overlay (thread-safe)."""
+        """Show the overlay in loading state (thread-safe)."""
         if self._bridge:
             self._bridge.show_signal.emit()
 
@@ -268,6 +312,11 @@ class RecordingOverlay:
         """Hide the overlay (thread-safe)."""
         if self._bridge:
             self._bridge.hide_signal.emit()
+
+    def set_recording(self):
+        """Transition from loading to recording/waveform state (thread-safe)."""
+        if self._bridge:
+            self._bridge.set_recording_signal.emit()
 
     def feed_audio(self, raw_bytes: bytes):
         """Feed raw int16 PCM audio bytes for waveform visualization (thread-safe)."""
