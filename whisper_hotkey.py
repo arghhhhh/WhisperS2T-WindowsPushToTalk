@@ -236,6 +236,29 @@ class RecordingThread(threading.Thread):
 # TRANSCRIPTION THREAD
 # =============================================================================
 
+def _join_segments(texts: List[str]) -> str:
+    """Join Parakeet segments, fixing capitalization at segment boundaries.
+
+    Parakeet capitalizes the first word of each segment independently.
+    When the previous segment doesn't end with sentence-ending punctuation,
+    the next segment's first letter should be lowercased.
+    """
+    if not texts:
+        return ""
+
+    result = texts[0].strip()
+    for text in texts[1:]:
+        text = text.strip()
+        if not text:
+            continue
+        # If previous segment didn't end a sentence, lowercase the next segment's start
+        if result and result[-1] not in '.!?':
+            text = text[0].lower() + text[1:]
+        result += ' ' + text
+
+    return result.strip()
+
+
 class TranscriptionThread(threading.Thread):
     """
     Consumer thread that processes audio chunks and transcribes them.
@@ -337,7 +360,8 @@ class TranscriptionThread(threading.Thread):
             
             # Extract text - join all segments (Parakeet splits into multiple segments)
             if out and len(out) > 0 and len(out[0]) > 0:
-                return ' '.join(seg['text'] for seg in out[0] if seg.get('text')).strip()
+                texts = [seg['text'] for seg in out[0] if seg.get('text')]
+                return _join_segments(texts)
             return ""
             
         except Exception as e:
@@ -458,6 +482,10 @@ class TranscriptionThread(threading.Thread):
                 if skip_from_next > 0:
                     next_words = next_words[skip_from_next:]
             
+            # Fix capitalization at chunk boundary
+            if result_words and next_words and result_words[-1][-1:] not in '.!?':
+                next_words[0] = next_words[0][0].lower() + next_words[0][1:]
+
             # Append next chunk's words
             result_words.extend(next_words)
         
@@ -891,7 +919,8 @@ def run_simple_mode(config: WhisperHotkeyConfig, duration: Optional[float] = Non
     
     # Extract result - join all segments (Parakeet splits into multiple segments)
     if out and len(out) > 0 and len(out[0]) > 0:
-        transcription = ' '.join(seg['text'] for seg in out[0] if seg.get('text')).strip()
+        texts = [seg['text'] for seg in out[0] if seg.get('text')]
+        transcription = _join_segments(texts)
     else:
         transcription = ""
     
