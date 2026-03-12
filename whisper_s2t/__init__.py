@@ -12,7 +12,31 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 def load_model(model_identifier="large-v2", 
                backend='CTranslate2', 
                **model_kwargs):
+    """
+    Load an ASR model with the specified backend.
     
+    Args:
+        model_identifier: Model name or path. Examples:
+            - Whisper: "large-v2", "large-v3", "medium", "small", "base", "tiny"
+            - Parakeet: "nvidia/parakeet-tdt-0.6b-v2" or path to .nemo file
+        backend: Backend to use for inference:
+            - "CTranslate2" / "CT2": Fast Whisper inference (default)
+            - "HuggingFace" / "HF": HuggingFace Transformers
+            - "OpenAI" / "OAI": Original OpenAI implementation
+            - "TensorRT" / "TRT": NVIDIA TensorRT-LLM (fastest)
+            - "Parakeet" / "NeMo": NVIDIA Parakeet TDT models (English-only)
+        **model_kwargs: Additional model-specific parameters
+        
+    Returns:
+        ASR model instance with transcribe() and transcribe_with_vad() methods
+    """
+    
+    # Parakeet backend (NVIDIA NeMo)
+    if backend.lower() in ["parakeet", "nemo"]:
+        from .backends.parakeet.model import ParakeetModel
+        return ParakeetModel(model_identifier, **model_kwargs)
+    
+    # Whisper backends
     if model_identifier in ['large-v3']:
         model_kwargs['n_mels'] = 128
     elif (model_identifier in ['distil-large-v2']) and (backend.lower() not in ["huggingface", "hf"]):
@@ -39,7 +63,7 @@ def load_model(model_identifier="large-v2",
     elif backend.lower() in ["tensorrt", "trt", "trt-llm", "tensorrt-llm", "trt_llm", "tensorrt_llm"]:
         from .backends.tensorrt.model import WhisperModelTRT as WhisperModel
     else:
-        raise ValueError(f"Backend name '{backend}' is invalid. Only following options are available: ['CTranslate2', 'TensorRT-LLM', 'HuggingFace', 'OpenAI']")
+        raise ValueError(f"Backend name '{backend}' is invalid. Only following options are available: ['CTranslate2', 'TensorRT-LLM', 'HuggingFace', 'OpenAI', 'Parakeet']")
         
     return WhisperModel(model_identifier, **model_kwargs)
         

@@ -34,6 +34,7 @@ import pyaudio
 
 # Import our config module
 from whisper_hotkey_config import load_config, WhisperHotkeyConfig
+from recording_overlay import RecordingOverlay
 
 
 # =============================================================================
@@ -83,13 +84,17 @@ class RecordingThread(threading.Thread):
         config: WhisperHotkeyConfig,
         stop_event: threading.Event,
         auto_stopped_event: threading.Event,
+        overlay: Optional[RecordingOverlay] = None,
+        on_stream_open=None,
     ):
         super().__init__(daemon=True)
         self.chunk_queue = chunk_queue
         self.config = config
         self.stop_event = stop_event
         self.auto_stopped_event = auto_stopped_event
-        
+        self.overlay = overlay
+        self.on_ready = on_stream_open
+
         self.audio = pyaudio.PyAudio()
         self.stream: Optional[pyaudio.Stream] = None
         self.chunk_index = 0
@@ -114,6 +119,12 @@ class RecordingThread(threading.Thread):
     def run(self):
         """Main recording loop."""
         try:
+            # Play start sound synchronously FIRST — blocks until the pop
+            # has fully played through the speakers, so the user hears it
+            # before we transition the overlay and start capturing audio.
+            if self.on_ready:
+                self.on_ready()
+
             # Open audio stream
             self.stream = self.audio.open(
                 format=FORMAT,
@@ -123,7 +134,11 @@ class RecordingThread(threading.Thread):
                 input_device_index=self.config.mic_device,
                 frames_per_buffer=CHUNK
             )
-            
+
+            # Transition overlay to recording state now that we're capturing
+            if self.overlay:
+                self.overlay.set_recording()
+
             print("🎙️  Recording started...")
             
             # Buffer for current chunk
@@ -139,6 +154,10 @@ class RecordingThread(threading.Thread):
                     data = self.stream.read(CHUNK, exception_on_overflow=False)
                     current_buffer.append(data)
                     samples_collected += CHUNK
+
+                    # Feed audio to overlay for waveform visualization
+                    if self.overlay:
+                        self.overlay.feed_audio(data)
                     
                     # Silence detection for auto-stop
                     if self.config.auto_stop_enabled:
@@ -235,6 +254,31 @@ class RecordingThread(threading.Thread):
 # =============================================================================
 # TRANSCRIPTION THREAD
 # =============================================================================
+
+def _join_segments(texts: List[str]) -> str:
+    """Join Parakeet segments, fixing capitalization at segment boundaries.
+
+    Parakeet capitalizes the first word of each segment independently.
+    When the previous segment doesn't end with sentence-ending punctuation,
+    the next segment's first letter should be lowercased.
+    """
+    if not texts:
+        return ""
+
+    result = texts[0].strip()
+    for text in texts[1:]:
+        text = text.strip()
+        if not text:
+            continue
+        # If previous segment didn't end a sentence, lowercase the next segment's start
+        # But preserve words like "I", "I'm", "I'll", etc.
+        first_word = text.split()[0] if text else ''
+        if result and result[-1] not in '.!?' and not (first_word == 'I' or first_word.startswith("I'")):
+            text = text[0].lower() + text[1:]
+        result += ' ' + text
+
+    return result.strip()
+
 
 class TranscriptionThread(threading.Thread):
     """
@@ -335,9 +379,10 @@ class TranscriptionThread(threading.Thread):
             except:
                 pass
             
-            # Extract text
+            # Extract text - join all segments (Parakeet splits into multiple segments)
             if out and len(out) > 0 and len(out[0]) > 0:
-                return out[0][0]['text'].strip()
+                texts = [seg['text'] for seg in out[0] if seg.get('text')]
+                return _join_segments(texts)
             return ""
             
         except Exception as e:
@@ -458,6 +503,12 @@ class TranscriptionThread(threading.Thread):
                 if skip_from_next > 0:
                     next_words = next_words[skip_from_next:]
             
+            # Fix capitalization at chunk boundary (but preserve words like "I", "I'm", "I'll", etc.)
+            if result_words and next_words and result_words[-1][-1:] not in '.!?':
+                word = next_words[0]
+                if not (word == 'I' or word.startswith("I'")):
+                    next_words[0] = word[0].lower() + word[1:]
+
             # Append next chunk's words
             result_words.extend(next_words)
         
@@ -481,14 +532,17 @@ class WhisperHotkeyApp:
         self.config = config
         self.state = AppState.IDLE
         self.model = None
-        
+
         # Threading primitives
         self.recording_thread: Optional[RecordingThread] = None
         self.transcription_thread: Optional[TranscriptionThread] = None
         self.chunk_queue: Optional[queue.Queue] = None
         self.stop_event: Optional[threading.Event] = None
         self.auto_stopped_event: Optional[threading.Event] = None
-        
+
+        # Recording overlay
+        self.overlay = RecordingOverlay()
+
         # Results
         self.final_transcription = ""
         self.transcription_ready = threading.Event()
@@ -541,12 +595,20 @@ class WhisperHotkeyApp:
             chunk_queue=self.chunk_queue,
             config=self.config,
             stop_event=self.stop_event,
-            auto_stopped_event=self.auto_stopped_event
+            auto_stopped_event=self.auto_stopped_event,
+            overlay=self.overlay,
+            on_stream_open=self._on_recording_stream_open,
         )
         self.recording_thread.start()
-        
-        # Play sound to indicate recording started
-        self._play_sound("start")
+
+        # Show overlay immediately in loading state
+        self.overlay.show()
+
+    def _on_recording_stream_open(self):
+        """Called from RecordingThread before the audio stream opens.
+        Plays the pop sound synchronously so it fully plays through the
+        speakers before recording begins."""
+        self._play_sound("start", sync=True)
 
     def stop_recording(self):
         """Stop recording and wait for transcription to complete."""
@@ -555,7 +617,10 @@ class WhisperHotkeyApp:
         
         self.state = AppState.PROCESSING
         print("\n\n⏹️  Stopping recording...")
-        
+
+        # Hide recording overlay
+        self.overlay.hide()
+
         # Signal recording to stop
         self.stop_event.set()
         
@@ -592,25 +657,36 @@ class WhisperHotkeyApp:
             import pyperclip
             pyperclip.copy(text)
             print("📋 Transcription copied to clipboard!")
+            # Play completion sound
+            self._play_sound("complete")
         except ImportError:
             print("⚠️  pyperclip not installed. Install with: pip install pyperclip")
         except Exception as e:
             print(f"⚠️  Could not copy to clipboard: {e}")
 
-    def _play_sound(self, sound_type: str = "start"):
+    def _play_sound(self, sound_type: str = "start", sync: bool = False):
         """Play a notification sound using Windows built-in winsound (no extra deps)."""
         try:
-            # Find the sound file
+            # Find the sound file based on type
             script_dir = Path(__file__).parent
-            sound_file = script_dir / "files" / "pop.wav"
-            
+
+            if sound_type == "start":
+                sound_file = script_dir / "files" / "pop.wav"
+            elif sound_type == "complete":
+                sound_file = script_dir / "files" / "out.wav"
+            else:
+                sound_file = script_dir / "files" / "pop.wav"
+
             if not sound_file.exists():
                 return
-            
+
             # Use winsound (built into Python on Windows)
             import winsound
-            # SND_ASYNC plays without blocking, SND_FILENAME plays from file
-            winsound.PlaySound(str(sound_file), winsound.SND_FILENAME | winsound.SND_ASYNC)
+            # SND_ASYNC plays without blocking; omit it for synchronous (blocking) playback
+            flags = winsound.SND_FILENAME
+            if not sync:
+                flags |= winsound.SND_ASYNC
+            winsound.PlaySound(str(sound_file), flags)
                 
         except Exception as e:
             # Silently fail - sound is not critical
@@ -694,6 +770,12 @@ class WhisperHotkeyApp:
                     all_keys.add('left alt')
                     all_keys.add('right alt')
                     all_keys.add('alt gr')
+                if 'cmd' in all_keys or 'windows' in all_keys or 'win' in all_keys:
+                    all_keys.add('cmd')
+                    all_keys.add('windows')
+                    all_keys.add('win')
+                    all_keys.add('left windows')
+                    all_keys.add('right windows')
                 
                 print(f"   Tracking keys: {all_keys}")
                 print(f"   Trigger key: '{trigger_key}'")
@@ -710,6 +792,9 @@ class WhisperHotkeyApp:
                         elif mod == 'alt':
                             if not keyboard.is_pressed('alt'):
                                 return False
+                        elif mod in ('cmd', 'windows', 'win'):
+                            if not (keyboard.is_pressed('left windows') or keyboard.is_pressed('right windows')):
+                                return False
                     return True
                 
                 def key_event_handler(event):
@@ -724,10 +809,11 @@ class WhisperHotkeyApp:
                         if DEBUG_KEYS:
                             print(f"   [DEBUG] Press: '{key_name}'", end="")
                         
-                        # Check for trigger key (handle 'space' variations)
+                        # Check for trigger key (handle aliases)
                         is_trigger = (
                             key_name == trigger_key or
-                            (trigger_key == 'space' and key_name in ('space', ' '))
+                            (trigger_key == 'space' and key_name in ('space', ' ')) or
+                            (trigger_key in ('cmd', 'windows', 'win') and key_name in ('cmd', 'windows', 'win', 'left windows', 'right windows'))
                         )
                         
                         if is_trigger and check_modifiers():
@@ -794,9 +880,13 @@ class WhisperHotkeyApp:
                 
         except KeyboardInterrupt:
             print("\n\n👋 Exiting...")
-            
+
         finally:
-            keyboard.unhook_all()
+            # Force-exit immediately. The OS will clean up keyboard hooks,
+            # audio streams, and the Qt event loop when the process dies.
+            # We skip keyboard.unhook_all() because it deadlocks on Windows
+            # by blocking the GIL inside a C-level Win32 UnhookWindowsHookEx call.
+            os._exit(0)
 
 
 # =============================================================================
@@ -881,9 +971,10 @@ def run_simple_mode(config: WhisperHotkeyConfig, duration: Optional[float] = Non
     # Clean up
     os.unlink(temp_path)
     
-    # Extract result
+    # Extract result - join all segments (Parakeet splits into multiple segments)
     if out and len(out) > 0 and len(out[0]) > 0:
-        transcription = out[0][0]['text'].strip()
+        texts = [seg['text'] for seg in out[0] if seg.get('text')]
+        transcription = _join_segments(texts)
     else:
         transcription = ""
     
