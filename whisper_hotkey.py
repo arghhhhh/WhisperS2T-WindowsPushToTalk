@@ -34,6 +34,7 @@ import pyaudio
 
 # Import our config module
 from whisper_hotkey_config import load_config, WhisperHotkeyConfig
+from recording_overlay import RecordingOverlay
 
 
 # =============================================================================
@@ -83,13 +84,15 @@ class RecordingThread(threading.Thread):
         config: WhisperHotkeyConfig,
         stop_event: threading.Event,
         auto_stopped_event: threading.Event,
+        overlay: Optional[RecordingOverlay] = None,
     ):
         super().__init__(daemon=True)
         self.chunk_queue = chunk_queue
         self.config = config
         self.stop_event = stop_event
         self.auto_stopped_event = auto_stopped_event
-        
+        self.overlay = overlay
+
         self.audio = pyaudio.PyAudio()
         self.stream: Optional[pyaudio.Stream] = None
         self.chunk_index = 0
@@ -139,6 +142,10 @@ class RecordingThread(threading.Thread):
                     data = self.stream.read(CHUNK, exception_on_overflow=False)
                     current_buffer.append(data)
                     samples_collected += CHUNK
+
+                    # Feed audio to overlay for waveform visualization
+                    if self.overlay:
+                        self.overlay.feed_audio(data)
                     
                     # Silence detection for auto-stop
                     if self.config.auto_stop_enabled:
@@ -509,14 +516,17 @@ class WhisperHotkeyApp:
         self.config = config
         self.state = AppState.IDLE
         self.model = None
-        
+
         # Threading primitives
         self.recording_thread: Optional[RecordingThread] = None
         self.transcription_thread: Optional[TranscriptionThread] = None
         self.chunk_queue: Optional[queue.Queue] = None
         self.stop_event: Optional[threading.Event] = None
         self.auto_stopped_event: Optional[threading.Event] = None
-        
+
+        # Recording overlay
+        self.overlay = RecordingOverlay()
+
         # Results
         self.final_transcription = ""
         self.transcription_ready = threading.Event()
@@ -569,10 +579,14 @@ class WhisperHotkeyApp:
             chunk_queue=self.chunk_queue,
             config=self.config,
             stop_event=self.stop_event,
-            auto_stopped_event=self.auto_stopped_event
+            auto_stopped_event=self.auto_stopped_event,
+            overlay=self.overlay,
         )
         self.recording_thread.start()
-        
+
+        # Show recording overlay
+        self.overlay.show()
+
         # Play sound to indicate recording started
         self._play_sound("start")
 
@@ -583,7 +597,10 @@ class WhisperHotkeyApp:
         
         self.state = AppState.PROCESSING
         print("\n\n⏹️  Stopping recording...")
-        
+
+        # Hide recording overlay
+        self.overlay.hide()
+
         # Signal recording to stop
         self.stop_event.set()
         
@@ -840,9 +857,10 @@ class WhisperHotkeyApp:
                 
         except KeyboardInterrupt:
             print("\n\n👋 Exiting...")
-            
+
         finally:
             keyboard.unhook_all()
+            self.overlay.shutdown()
 
 
 # =============================================================================
