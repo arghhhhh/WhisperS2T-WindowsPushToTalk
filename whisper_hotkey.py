@@ -335,9 +335,9 @@ class TranscriptionThread(threading.Thread):
             except:
                 pass
             
-            # Extract text
+            # Extract text - join all segments (Parakeet splits into multiple segments)
             if out and len(out) > 0 and len(out[0]) > 0:
-                return out[0][0]['text'].strip()
+                return ' '.join(seg['text'] for seg in out[0] if seg.get('text')).strip()
             return ""
             
         except Exception as e:
@@ -889,9 +889,9 @@ def run_simple_mode(config: WhisperHotkeyConfig, duration: Optional[float] = Non
     # Clean up
     os.unlink(temp_path)
     
-    # Extract result
+    # Extract result - join all segments (Parakeet splits into multiple segments)
     if out and len(out) > 0 and len(out[0]) > 0:
-        transcription = out[0][0]['text'].strip()
+        transcription = ' '.join(seg['text'] for seg in out[0] if seg.get('text')).strip()
     else:
         transcription = ""
     
