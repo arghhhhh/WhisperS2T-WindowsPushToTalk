@@ -259,7 +259,9 @@ def _join_segments(texts: List[str]) -> str:
         if not text:
             continue
         # If previous segment didn't end a sentence, lowercase the next segment's start
-        if result and result[-1] not in '.!?':
+        # But preserve words like "I", "I'm", "I'll", etc.
+        first_word = text.split()[0] if text else ''
+        if result and result[-1] not in '.!?' and not (first_word == 'I' or first_word.startswith("I'")):
             text = text[0].lower() + text[1:]
         result += ' ' + text
 
@@ -489,9 +491,11 @@ class TranscriptionThread(threading.Thread):
                 if skip_from_next > 0:
                     next_words = next_words[skip_from_next:]
             
-            # Fix capitalization at chunk boundary
+            # Fix capitalization at chunk boundary (but preserve words like "I", "I'm", "I'll", etc.)
             if result_words and next_words and result_words[-1][-1:] not in '.!?':
-                next_words[0] = next_words[0][0].lower() + next_words[0][1:]
+                word = next_words[0]
+                if not (word == 'I' or word.startswith("I'")):
+                    next_words[0] = word[0].lower() + word[1:]
 
             # Append next chunk's words
             result_words.extend(next_words)
